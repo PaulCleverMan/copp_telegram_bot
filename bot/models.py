@@ -44,6 +44,7 @@ class Room(models.Model):
     name_room = models.CharField('Наименование помещения', max_length=100)
     max_people = models.IntegerField('Максимальное количество участников')
     description_room = models.TextField('Описание')
+    is_coworking = models.BooleanField(default=False, verbose_name='Коворкинг')
 
     def __str__(self):
         return f'{self.name_room}'

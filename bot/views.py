@@ -42,6 +42,8 @@ def index(request):
 user_dict = {}
 event_dict = {}
 question_dict = {}
+slot_dist = {}
+record_in_slot_dist = {}
 
 # Объекты миграций (PostgreSQL)
 room = Room.objects
@@ -56,6 +58,8 @@ connection_search = Connection.objects
 # Время работы организации (для юр. лиц)
 start_hour_org = datetime.strptime('06:00:00', '%H:%M:%S').time()
 finish_hour_org = datetime.strptime('23:30:00', '%H:%M:%S').time()
+start_hour_private = datetime.strptime('09:00:00', '%H:%M:%S').time()
+finish_hour_private = datetime.strptime('18:00:00', '%H:%M:%S').time()
 
 
 # Текста шаблона сообщения от бота
@@ -126,6 +130,8 @@ btn_yes = types.KeyboardButton('Да')
 btn_no = types.KeyboardButton('Нет')
 btn_room_event = types.InlineKeyboardButton(text='Бронирование помещений', callback_data='room_event')
 btn_start_back = types.InlineKeyboardButton(text='Главное меню', callback_data='start_back')
+btn_reg_slot = types.InlineKeyboardButton(text='Бронирование коворгинг', callback_data='reg_slot')
+btn_slot_record = types.InlineKeyboardButton(text='Запись в коворгинг', callback_data='slot_record')
 
 
 
@@ -137,7 +143,9 @@ def start(message):
     markup = types.InlineKeyboardMarkup()
     if user:
         if user.filter(type='private_person') and user.filter(status='approval'):
-            bot.send_message(message.chat.id, text_messages['private_person_approval'])
+            markup.add(btn_reg_slot)
+            markup.add(btn_slot_record)
+            bot.send_message(message.chat.id, text_messages['private_person_approval'], reply_markup=markup)
         elif user.filter(type='company') and user.filter(status='approval'):
             markup.add(btn_room_event)
             bot.send_message(message.chat.id, text_messages['company_approval'], reply_markup=markup)
@@ -260,6 +268,10 @@ def call_handler(call):
             f'\nПомещение: <b>{first_room.name_room}</b>\nУчастники: <b>{first_room.max_people}(max)</b>\nОписание: <b>{first_room.description_room}</b>',
             reply_markup=markup
         )
+    elif call.data == 'reg_slot':
+        registration_slot(call)
+    elif call.data == 'slot_record':
+        registration_in_slot(call)
 
 
     i = 0
@@ -772,6 +784,12 @@ def event_confirm(message, event_dict):
             start(message)
     except Exception as e:
         bot.reply_to(message, f'Что-то пошло не так!')
+
+def registration_slot(call):
+    pass
+
+def registration_in_slot(call):
+    pass
 
 
 bot.enable_save_next_step_handlers(delay=1, filename="home/p/pashok13ru/telegram_bot/public_html/.handlers-saves/step.save")

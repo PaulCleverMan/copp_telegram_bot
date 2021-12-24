@@ -786,10 +786,10 @@ def event_confirm(message, event_dict):
         bot.reply_to(message, f'Что-то пошло не так!')
 
 def registration_slot(call):
-    pass
+    bot.send_message(call.message.chat.id, 'Функционал не реализован.')
 
 def registration_in_slot(call):
-    pass
+    bot.send_message(call.message.chat.id, 'Функционал не реализован.')
 
 
 bot.enable_save_next_step_handlers(delay=1, filename="home/p/pashok13ru/telegram_bot/public_html/.handlers-saves/step.save")

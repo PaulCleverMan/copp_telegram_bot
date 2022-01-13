@@ -2,7 +2,9 @@ from django.shortcuts import render
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
-from datetime import datetime, timedelta
+from datetime import *
+import datetime as dt
+from dateutil.relativedelta import relativedelta
 import requests
 import time
 from django.db.models import signals
@@ -20,10 +22,12 @@ from phonenumbers import NumberParseException
 from phonenumbers import carrier, timezone, geocoder
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 WEBHOOK = 'https://smart-tlt.ru'
 bot = telebot.TeleBot(settings.TOKEN, threaded=False, parse_mode='HTML')
+
 
 # Рендер страницы и отправка запросов боту
 @csrf_exempt
@@ -38,6 +42,7 @@ def index(request):
     bot.process_new_updates([update])
     return HttpResponse(status=200)
 
+
 # Словарь, в который записываются введенные данные от пользователя во время пошагового обработчика
 user_dict = {}
 event_dict = {}
@@ -50,6 +55,7 @@ room = Room.objects
 item_room = Count_item.objects
 name_item_room = Name_item.objects
 event_status = Event.objects
+slot_status = Coworking_Slot.objects
 issue = Issue.objects
 new_issue = Issue()
 connection = Connection()
@@ -58,9 +64,11 @@ connection_search = Connection.objects
 # Время работы организации (для юр. лиц)
 start_hour_org = datetime.strptime('06:00:00', '%H:%M:%S').time()
 finish_hour_org = datetime.strptime('23:30:00', '%H:%M:%S').time()
+max_day_for_booking = 30
 start_hour_private = datetime.strptime('09:00:00', '%H:%M:%S').time()
 finish_hour_private = datetime.strptime('18:00:00', '%H:%M:%S').time()
 
+year = datetime.now().year
 
 # Текста шаблона сообщения от бота
 text_messages = {
@@ -123,6 +131,19 @@ registration_event = {
         '\n\n<b>Ваша заявка:</b>\nНаименование: <b>{}</b>\nПомещение: <b>{}</b>\nКол-во участников: <b>{}</b>\nДата: <b>{}</b>\nВремя начала: <b>{}</b>\nВремя окончания: <b>{}</b>',
 }
 
+registration_slot_txt = {
+    'date':
+        'Введите дату.\n\nФормат: <i>день.месяц</i> \nПример: <i>20.01 или 1.5</i>',
+    'start_time':
+        'Введите время начала мероприятия. \n\nФормат: <i>часы:минуты</i> \nПример: <i>10:00 или 10:30</i>',
+    'finish_time':
+        'Введите время окончания мероприятия. \n\nФормат: <i>часы:минуты</i> \nПример: <i>10:00 или 10:30</i>',
+    'quantity_people':
+        'Введите количество участников.',
+    'slot_confirm':
+        '<b>Пожалуйста, поверьте корректность введеных данных!</b> \nПомещение: <b>{}</b>\nКол-во участников: <b>{}</b>\nДата: <b>{}</b>\nВремя начала: <b>{}</b>\nВремя окончания: <b>{}</b>',
+}
+
 # callback кнопки
 btn_private_person = types.InlineKeyboardButton(text='Физическое лицо', callback_data='private_person')
 btn_company = types.InlineKeyboardButton(text='Юридическое лицо', callback_data='company')
@@ -132,8 +153,6 @@ btn_room_event = types.InlineKeyboardButton(text='Бронирование по�
 btn_start_back = types.InlineKeyboardButton(text='Главное меню', callback_data='start_back')
 btn_reg_slot = types.InlineKeyboardButton(text='Бронирование коворгинг', callback_data='reg_slot')
 btn_slot_record = types.InlineKeyboardButton(text='Запись в коворгинг', callback_data='slot_record')
-
-
 
 
 # Обработка команды (старт) от пользователя работает в зависимости от того, зарегистрирован или нет
@@ -166,6 +185,7 @@ def start(message):
 def help(message):
     bot.send_message(message.chat.id, text_messages['help'])
 
+
 # Обработка команды (вопрос) от пользователя (регистрация не требуется)
 @bot.message_handler(commands=['question'])
 def question(message):
@@ -177,6 +197,7 @@ def question(message):
     bot.send_message(message.chat.id, text_messages['question'])
     bot.register_next_step_handler(message, first_step_question, question_dict)
 
+
 def first_step_question(message, question_dict):
     try:
         chat_id = message.chat.id
@@ -186,10 +207,13 @@ def first_step_question(message, question_dict):
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         markup.add(btn_yes, btn_no)
 
-        bot.send_message(message.chat.id, f'Проверьте, вопрос составлен корректно? \n\n<b>Ваш вопрос:</b>\n{new_issue.message_from_user}', reply_markup=markup)
+        bot.send_message(message.chat.id,
+                         f'Проверьте, вопрос составлен корректно? \n\n<b>Ваш вопрос:</b>\n{new_issue.message_from_user}',
+                         reply_markup=markup)
         bot.register_next_step_handler(message, question_confirm, question_dict)
     except Exception as e:
-        bot.reply_to(message, 'Что-то пошло не так!')
+        bot.send_message(message, 'Что-то пошло не так!')
+
 
 def question_confirm(message, question_dict):
     try:
@@ -205,13 +229,13 @@ def question_confirm(message, question_dict):
                 new_issue.save()
                 bot.send_message(message.chat.id, 'Ваш вопрос отправлен!', reply_markup=markup)
             except Exception as e:
-                bot.reply_to(message, f'Что-то пошло не так!')
+                bot.send_message(message, f'Что-то пошло не так!')
         elif message.text == 'Нет':
             bot.send_chat_action(message.chat.id, 'typing')
             time.sleep(3)
             start(message)
     except Exception as e:
-        bot.reply_to(message, f'Что-то пошло не так!')
+        bot.send_message(message, f'Что-то пошло не так!')
 
 
 # Ответ на произвольное сообщение от пользователя
@@ -219,16 +243,14 @@ def question_confirm(message, question_dict):
 def echo_all(message):
     bot.send_message(message.chat.id, text_messages['all'])
 
+
 # Обработка любых нажатых кнопок callback
 @bot.callback_query_handler(func=lambda call: True)
 def call_handler(call):
     markup = types.InlineKeyboardMarkup()
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup='')
 
-
-
-    logger.warning('call.data: %s', call.data)
-    if call.data =='private_person' or call.data =='company':
+    if call.data == 'private_person' or call.data == 'company':
         chat_id = call.message.chat.id
         user = User()
         user_dict[chat_id] = user
@@ -250,7 +272,7 @@ def call_handler(call):
         start(message)
 
     elif call.data == 'room_event':
-        bot.delete_message(call.message.chat.id, call.message.message_id )
+        bot.delete_message(call.message.chat.id, call.message.message_id)
 
         first_room = room.all()[0]
 
@@ -268,11 +290,11 @@ def call_handler(call):
             f'\nПомещение: <b>{first_room.name_room}</b>\nУчастники: <b>{first_room.max_people}(max)</b>\nОписание: <b>{first_room.description_room}</b>',
             reply_markup=markup
         )
+    #slot
     elif call.data == 'reg_slot':
         registration_slot(call)
     elif call.data == 'slot_record':
         registration_in_slot(call)
-
 
     i = 0
     for el in room.all():
@@ -288,7 +310,7 @@ def call_handler(call):
 
             next_room = room.all()[i]
 
-            if i+1 == len(room.all()):
+            if i + 1 == len(room.all()):
                 markup.add(btn_back)
             else:
                 markup.add(btn_back, btn_next)
@@ -299,7 +321,7 @@ def call_handler(call):
                 call.message.chat.id,
                 call.message.message_id,
                 reply_markup=markup
-                )
+            )
         elif call.data == f'{i}_back':
 
             markup.add(btn_item_room_show)
@@ -318,7 +340,7 @@ def call_handler(call):
                 call.message.chat.id,
                 call.message.message_id,
                 reply_markup=markup
-                )
+            )
 
         elif call.data == f'{i}_item_show':
             main_room = room.all()[i].id
@@ -354,6 +376,7 @@ def call_handler(call):
                 f'\nПомещение: <b>{main_room.name_room}</b>\nУчастники: <b>{main_room.max_people}</b>(max)\nОписание: <b>{main_room.description_room}</b>',
                 reply_markup=markup
             )
+        #event
         elif call.data == f'{i}_book':
             try:
                 main_room = room.all()[i].id
@@ -365,13 +388,11 @@ def call_handler(call):
                 event.user_id_id = User.objects.get(id_telegram=call.message.chat.id).id
                 event.organization = User.objects.get(id_telegram=call.message.chat.id).organization
 
-                msg = bot.send_message(call.message.chat.id, registration_event['date'])
-                bot.register_next_step_handler(msg, first_step_event, event_dict)
+                bot.send_message(call.message.chat.id, registration_event['date'])
+                bot.register_next_step_handler(call.message, first_step_event, event_dict)
             except Exception as e:
-                bot.reply_to(call.message, f'Что-то пошло не так!\n{e}')
+                bot.send_message(call.message, f'Что-то пошло не так!\n{e}')
         i = i + 1
-
-
 
 # Регистрация пользователей
 def first_step_reg(message, user_dict):
@@ -383,7 +404,7 @@ def first_step_reg(message, user_dict):
         msg = bot.send_message(message.chat.id, registration_messages['last_name'])
         bot.register_next_step_handler(msg, second_step_reg, user_dict)
     except Exception as e:
-        bot.reply_to(message, 'Что-то пошло не так!')
+        bot.send_message(message, 'Что-то пошло не так!')
 
 
 def second_step_reg(message, user_dict):
@@ -399,7 +420,7 @@ def second_step_reg(message, user_dict):
             msg = bot.send_message(message.chat.id, registration_messages['email'])
             bot.register_next_step_handler(msg, fourth_step_reg, user_dict)
     except Exception as e:
-        bot.reply_to(message, 'Что-то пошло не так!')
+        bot.send_message(message, 'Что-то пошло не так!')
 
 
 def third_step_reg(message, user_dict):
@@ -411,7 +432,7 @@ def third_step_reg(message, user_dict):
         msg = bot.send_message(message.chat.id, registration_messages['email'])
         bot.register_next_step_handler(msg, fourth_step_reg, user_dict)
     except Exception as e:
-        bot.reply_to(message, 'Что-то пошло не так!')
+        bot.send_message(message, 'Что-то пошло не так!')
 
 
 def fourth_step_reg(message, user_dict):
@@ -426,10 +447,10 @@ def fourth_step_reg(message, user_dict):
         msg = bot.send_message(message.chat.id, registration_messages['phone'])
         bot.register_next_step_handler(msg, fifth_step_reg, user_dict)
     except EmailNotValidError as e:
-        bot.reply_to(message, 'Некорректный Email, повторите попытку...')
-        bot.register_next_step_handler(message, fourth_step_reg, user_dict)
+        bot.send_message(message, 'Некорректный Email, повторите попытку...')
+        bot.register_next_step_handler(message.chat.id, fourth_step_reg, user_dict)
     except Exception as e:
-        bot.reply_to(message, 'Что-то пошло не так!')
+        bot.send_message(message, 'Что-то пошло не так!')
 
 
 def fifth_step_reg(message, user_dict):
@@ -440,7 +461,7 @@ def fifth_step_reg(message, user_dict):
         phone_number = phonenumbers.parse(phone, 'RU')
         phone_number = phonenumbers.is_valid_number(phone_number)
         if not phone_number:
-            bot.reply_to(message, 'Некорректный телефон, повторите попытку...')
+            bot.send_message(message.chat.id, 'Некорректный телефон, повторите попытку...')
             bot.register_next_step_handler(message, fifth_step_reg, user_dict)
         else:
             phone_number = phonenumbers.parse(phone, 'RU')
@@ -475,10 +496,10 @@ def fifth_step_reg(message, user_dict):
             bot.register_next_step_handler(message, registration_confirm, user_dict)
 
     except NumberParseException as e:
-        bot.reply_to(message, 'Некорректный телефон, повторите попытку...')
+        bot.send_message(message, 'Некорректный телефон, повторите попытку...')
         bot.register_next_step_handler(message, fifth_step_reg, user_dict)
     except Exception as e:
-        bot.reply_to(message, f'Что-то пошло не так!')
+        bot.send_message(message, f'Что-то пошло не так!')
 
 
 def registration_confirm(message, user_dict):
@@ -490,15 +511,17 @@ def registration_confirm(message, user_dict):
                 chat_id = message.chat.id
                 user = user_dict[chat_id]
                 user.save()
-                bot.send_message(message.chat.id, 'Вы зарегистрированны! Для продолжения использования бота, пожалуйста, ожидайте одобрения.', reply_markup=markup)
+                bot.send_message(message.chat.id,
+                                 'Вы зарегистрированны! Для продолжения использования бота, пожалуйста, ожидайте одобрения.',
+                                 reply_markup=markup)
             except Exception as e:
-                bot.reply_to(message, f'Что-то пошло не так!')
+                bot.send_message(message, f'Что-то пошло не так!')
         elif message.text == 'Нет':
             bot.send_chat_action(message.chat.id, 'typing')
             time.sleep(3)
             start(message)
     except Exception as e:
-        bot.reply_to(message, f'Что-то пошло не так!')
+        bot.send_message(message, f'Что-то пошло не так!')
 
 
 def rabbit_intervals(date, event, intervals):
@@ -510,15 +533,18 @@ def rabbit_intervals(date, event, intervals):
 
         # От начала работы заведения до первого интервала
         if i == 0 and start_hour_org != event_date[0].start_time:
-            finish_interval = timedelta(hours=event_date[i].start_time.hour, minutes=event_date[i].start_time.minute) - timedelta(minutes=30)
+            finish_interval = timedelta(hours=event_date[i].start_time.hour,
+                                        minutes=event_date[i].start_time.minute) - timedelta(minutes=30)
             start_interval = start_hour_org
             finish_interval = datetime.strptime(str(finish_interval), '%H:%M:%S').time()
             if finish_interval > start_interval < event_date[i].start_time:
                 intervals = create_table_interval(start_interval, finish_interval, intervals)
         # От первого до второго и последующих интервалов
         if i + 1 < event_length:
-            finish_interval = timedelta(hours=event_date[i + 1].start_time.hour, minutes=event_date[i + 1].start_time.minute) - timedelta(minutes=30)
-            start_interval = timedelta(hours=event_date[i].finish_time.hour, minutes=event_date[i].finish_time.minute) + timedelta(minutes=30)
+            finish_interval = timedelta(hours=event_date[i + 1].start_time.hour,
+                                        minutes=event_date[i + 1].start_time.minute) - timedelta(minutes=30)
+            start_interval = timedelta(hours=event_date[i].finish_time.hour,
+                                       minutes=event_date[i].finish_time.minute) + timedelta(minutes=30)
             finish_interval = datetime.strptime(str(finish_interval), '%H:%M:%S').time()
             start_interval = datetime.strptime(str(start_interval), '%H:%M:%S').time()
             if event_date[i].finish_time < start_interval < finish_interval < event_date[i + 1].start_time:
@@ -526,7 +552,8 @@ def rabbit_intervals(date, event, intervals):
         # От последнего и до окончания работы заведения
         if i + 1 == event_length and finish_hour_org != event_date.reverse()[0].finish_time:
             finish_interval = finish_hour_org
-            start_interval = timedelta(hours=event_date[i].finish_time.hour, minutes=event_date[i].finish_time.minute) + timedelta(minutes=30)
+            start_interval = timedelta(hours=event_date[i].finish_time.hour,
+                                       minutes=event_date[i].finish_time.minute) + timedelta(minutes=30)
             start_interval = datetime.strptime(str(start_interval), '%H:%M:%S').time()
             if finish_interval > start_interval > event_date[i].finish_time:
                 intervals = create_table_interval(start_interval, finish_interval, intervals)
@@ -534,6 +561,7 @@ def rabbit_intervals(date, event, intervals):
         i += 1
 
     return intervals
+
 
 def create_table_interval(start_interval, finish_interval, intervals):
     n = len(intervals)
@@ -543,7 +571,8 @@ def create_table_interval(start_interval, finish_interval, intervals):
 
     return intervals
 
-def string_interval (interval, event_interval_fee):
+
+def string_interval(interval, event_interval_fee):
     j = 0
     while j < len(interval):
         start_time = interval[j][0]
@@ -553,74 +582,73 @@ def string_interval (interval, event_interval_fee):
 
     return event_interval_fee
 
+
+def date_next_year(date):
+    if date < datetime.today().date():
+        date += relativedelta(years= +1)
+        if datetime.now().date() + timedelta(max_day_for_booking) >= date:
+            return True
+        elif datetime.now().date() + timedelta(max_day_for_booking) < date:
+            return False
+    elif datetime.now().date() + timedelta(max_day_for_booking) >= date:
+        return True
+
+def formatter_date(message):
+    date = message.text + f'.{year}'
+    date = datetime.strptime(date, '%d.%m.%Y').date().strftime('%Y-%m-%d')
+    date = datetime.strptime(str(date), '%Y-%m-%d').date()
+    return date
+
 # Бронирование помещения (мероприятие)
 def first_step_event(message, event_dict):
     try:
         chat_id = message.chat.id
         event = event_dict[chat_id]
 
-        year = datetime.now().year
-        date = message.text + f'.{year}'
-        date = datetime.strptime(date, '%d.%m.%Y').date().strftime('%Y-%m-%d')
+        date = formatter_date(message)
+        control_year = date_next_year(date)
 
         intervals = []
         event_interval_fee = ''
 
-        if datetime.strptime(date, '%Y-%m-%d').date() < datetime.today().date():
-            year = int(year) + 1
-            date = message.text + f'.{year}'
-            date = datetime.strptime(date, '%d.%m.%Y').date().strftime('%Y-%m-%d')
+        intervals = rabbit_intervals(date, event, intervals)
+        event_interval_fee = string_interval(intervals, event_interval_fee)
 
-            if datetime.now().date() + timedelta(30) >= datetime.strptime(date, '%Y-%m-%d').date():
+        if not control_year:
+            bot.send_message(message.chat.id, 'Можно забронировать только на 30 дней вперед! Повторите попытку...')
+            bot.register_next_step_handler(message, first_step_event, event_dict)
+        elif control_year:
+            if date < datetime.today().date():
+                date += relativedelta(years=+1)
+            if event_status.filter(date=date, room_id_id=event.room_id_id).exists() is True:
+
+                if event_interval_fee != '':
+                    event.date = date
+                    bot.send_message(message.chat.id, f"Доступные интервалы для бронирования:\n{event_interval_fee}\nВведите время начала мероприятия. \n\nФормат: <i>часы:минуты</i> \nПример: <i>10:00 или 10:30</i>")
+                    bot.register_next_step_handler(message, second_step_event, event_dict, intervals)
+                else:
+                    bot.send_message(message.chat.id, 'Помещение забронированно в этот день! Пожалуйста, выбирите другую дату!')
+                    bot.register_next_step_handler(message, first_step_event, event_dict)
+
+            elif event_status.filter(date=date, room_id_id=event.room_id_id).exists() is False:
                 event.date = date
                 bot.send_message(message.chat.id, registration_event['start_time'])
-                bot.register_next_step_handler(message, second_step_event, event_dict)
-
-            elif datetime.now().date() + timedelta(30) < datetime.strptime(date, '%Y-%m-%d').date():
-                bot.send_message(message.chat.id,
-                                 'Можно забронировать помещение не более чем, на 30 дней вперед или введенная дата из прошлого, повторите попытку...')
-                bot.register_next_step_handler(message, first_step_event, event_dict)
-        else:
-            if datetime.now().date() + timedelta(30) >= datetime.strptime(date, '%Y-%m-%d').date():
-
-                if event_status.filter(date=date, room_id_id=event.room_id_id).exists() is True:
-
-                    intervals = rabbit_intervals(date, event, intervals)
-                    event_interval_fee = string_interval(intervals, event_interval_fee)
-
-                    if event_interval_fee != '':
-                        bot.send_message(message.chat.id, f"Доступные интервалы для бронирования:\n{event_interval_fee}")
-                        event.date = date
-                        bot.send_message(message.chat.id, registration_event['start_time'])
-                        bot.register_next_step_handler(message, second_step_event, event_dict, intervals)
-                    else:
-                        bot.send_message(message.chat.id, 'Помещение забронированно в этот день! Пожалуйста, выбирите другую дату!')
-                        bot.register_next_step_handler(message, first_step_event, event_dict)
-
-                elif event_status.filter(date=date, room_id_id=event.room_id_id).exists() is False:
-                    event.date = date
-                    bot.send_message(message.chat.id, registration_event['start_time'])
-                    bot.register_next_step_handler(message, second_step_event, event_dict, intervals)
-
-            else:
-                bot.send_message(message.chat.id,
-                                 'Можно забронировать помещение не более чем, на 30 дней вперед или введенная дата из прошлого, повторите попытку...')
-                bot.register_next_step_handler(message, first_step_event, event_dict)
+                bot.register_next_step_handler(message, second_step_event, event_dict, intervals)
 
     except ValueError:
-        bot.reply_to(message, 'Некорректный формат или значение,  повторите попытку...')
+        bot.send_message(message.chat.id, 'Некорректный формат или значение,  повторите попытку...')
         bot.register_next_step_handler(message, first_step_event, event_dict)
-
     except Exception as e:
-        bot.reply_to(message, f'Что-то пошло не так! \n{e}')
+        bot.send_message(message, f'Что-то пошло не так! \n{e}')
+
 
 def convert_time(string_time):
     string_time = datetime.strptime(string_time, '%H:%M:%S').time()
 
     return string_time
 
-def validation_interval (time, interval, step_time, start_time=None):
 
+def validation_interval(time, interval, step_time, start_time=None):
     j = 0
     while j < len(interval):
         first_time = interval[j][0]
@@ -636,6 +664,7 @@ def validation_interval (time, interval, step_time, start_time=None):
         j += 1
     return False
 
+
 def second_step_event(message, event_dict, intervals):
     try:
         chat_id = message.chat.id
@@ -650,7 +679,8 @@ def second_step_event(message, event_dict, intervals):
             check_start_time = validation_interval(start_time, intervals, step_time)
 
         if start_time < start_hour_org or start_time > finish_hour_org:
-            bot.send_message(message.chat.id, 'Время мероприятия превышает время работы заведения, повторите попытку...')
+            bot.send_message(message.chat.id,
+                             'Время мероприятия превышает время работы заведения, повторите попытку...')
             bot.register_next_step_handler(message, second_step_event, event_dict, intervals)
         elif start_time <= datetime.now().time() and str(event.date) == str(datetime.now().date()):
             bot.send_message(message.chat.id, 'Время не может быть из прошлого, повторите попытку...')
@@ -663,14 +693,15 @@ def second_step_event(message, event_dict, intervals):
             bot.send_message(message.chat.id, registration_event['finish_time'])
             bot.register_next_step_handler(message, third_step_event, event_dict, intervals)
         elif check_start_time is False:
-            bot.send_message(message.chat.id, 'Время забронировано или вы ввели конечное время свободного интервала, повторите попытку...')
+            bot.send_message(message.chat.id,
+                             'Время забронировано или вы ввели конечное время свободного интервала, повторите попытку...')
             bot.register_next_step_handler(message, second_step_event, event_dict, intervals)
     except ValueError:
-        bot.reply_to(message, 'Некорректный формат или значение,  повторите попытку...')
+        bot.send_message(message.chat.id, 'Некорректный формат или значение,  повторите попытку...')
         bot.register_next_step_handler(message, second_step_event, event_dict, intervals)
 
     except Exception as e:
-        bot.reply_to(message, f'Что-то пошло не так! \n{e}')
+        bot.send_message(message, f'Что-то пошло не так! \n{e}')
 
 
 def third_step_event(message, event_dict, intervals):
@@ -703,14 +734,15 @@ def third_step_event(message, event_dict, intervals):
                 bot.send_message(message.chat.id, 'Время меньше либо равно началу мероприятия, повторите попытку...')
                 bot.register_next_step_handler(message, third_step_event, event_dict, intervals)
             else:
-                bot.send_message(message.chat.id, '❗️Конечное время превышает допустимый интервал, повторите попытку...❗️')
+                bot.send_message(message.chat.id,
+                                 '❗️Конечное время превышает допустимый интервал, повторите попытку...❗️')
                 bot.register_next_step_handler(message, third_step_event, event_dict, intervals)
 
     except ValueError:
-        bot.reply_to(message, 'Некорректный формат или значение,  повторите попытку...')
+        bot.send_message(message.chat.id, 'Некорректный формат или значение,  повторите попытку...')
         bot.register_next_step_handler(message, third_step_event, event_dict, intervals)
     except Exception as e:
-        bot.reply_to(message, f'Что-то пошло не так!\n {e}')
+        bot.send_message(message, f'Что-то пошло не так!\n {e}')
 
 
 def fourth_step_event(message, event_dict):
@@ -723,7 +755,7 @@ def fourth_step_event(message, event_dict):
         bot.send_message(message.chat.id, registration_event['quantity_people'])
         bot.register_next_step_handler(message, sixth_step_event, event_dict)
     except Exception as e:
-        bot.reply_to(message, 'Что-то пошло не так!')
+        bot.send_message(message, 'Что-то пошло не так!')
 
 
 def sixth_step_event(message, event_dict):
@@ -734,10 +766,10 @@ def sixth_step_event(message, event_dict):
         quantity_people = message.text
 
         if not quantity_people.isdigit():
-            bot.reply_to(message, 'Сообщение должно быть целым числом, повторите попытку...')
+            bot.send_message(message.chat.id, 'Сообщение должно быть целым числом, повторите попытку...')
             bot.register_next_step_handler(message, sixth_step_event, event_dict)
         elif int(quantity_people) > room.get(id=event.room_id_id).max_people:
-            bot.reply_to(message, 'Ваше число превышает максимальное количество участников, повторите попытку...')
+            bot.send_message(message.chat.id, 'Ваше число превышает максимальное количество участников, повторите попытку...')
             bot.register_next_step_handler(message, sixth_step_event, event_dict)
         elif quantity_people.isdigit() and int(quantity_people) <= room.get(id=event.room_id_id).max_people:
             event.quantity_people = int(quantity_people)
@@ -753,14 +785,14 @@ def sixth_step_event(message, event_dict):
                 event.name_event,
                 room.get(id=event.room_id_id).name_room,
                 event.quantity_people,
-                datetime.strptime(event.date, '%Y-%m-%d').date().strftime('%d.%m.%Y'),
+                datetime.strptime(str(event.date), '%Y-%m-%d').date().strftime('%d.%m.%Y'),
                 event.start_time,
                 event.finish_time),
                                    reply_markup=markup)
             bot.register_next_step_handler(msg, event_confirm, event_dict)
 
     except Exception as e:
-        bot.reply_to(message, f'Что-то пошло не так!')
+        bot.send_message(message, f'Что-то пошло не так! {e}')
 
 
 def event_confirm(message, event_dict):
@@ -772,18 +804,20 @@ def event_confirm(message, event_dict):
                 chat_id = message.chat.id
                 event = event_dict[chat_id]
                 event.save()
-                bot.send_message(message.chat.id, 'Заявка на бронирование отправлена! Ожидайте, одобрения.', reply_markup=markup)
+                bot.send_message(message.chat.id, 'Заявка на бронирование отправлена! Ожидайте, одобрения.',
+                                 reply_markup=markup)
                 bot.send_chat_action(message.chat.id, 'typing')
                 time.sleep(3)
                 start(message)
             except Exception as e:
-                bot.reply_to(message, f'Что-то пошло не так!')
+                bot.send_message(message, f'Что-то пошло не так!')
         elif message.text == 'Нет':
             bot.send_chat_action(message.chat.id, 'typing')
             time.sleep(3)
             start(message)
     except Exception as e:
-        bot.reply_to(message, f'Что-то пошло не так!')
+        bot.send_message(message, f'Что-то пошло не так!')
+
 
 def registration_slot(call):
     bot.send_message(call.message.chat.id, 'Функционал не реализован.')
@@ -792,8 +826,10 @@ def registration_in_slot(call):
     bot.send_message(call.message.chat.id, 'Функционал не реализован.')
 
 
-bot.enable_save_next_step_handlers(delay=1, filename="home/p/pashok13ru/telegram_bot/public_html/.handlers-saves/step.save")
+bot.enable_save_next_step_handlers(delay=1,
+                                   filename="home/p/pashok13ru/telegram_bot/public_html/.handlers-saves/step.save")
 bot.load_next_step_handlers(filename="home/p/pashok13ru/telegram_bot/public_html/.handlers-saves/step.save")
+
 
 # Уведомление об одобрении или отклонении профиля
 @receiver(signals.pre_save, sender=User)
@@ -825,6 +861,7 @@ def user_approval(sender, instance, **kwargs):
                     new_issue.save()
     except User.DoesNotExist:
         return
+
 
 # Уведомление о подтверждении или отколонении мероприятия
 @receiver(signals.pre_save, sender=Event)
@@ -860,6 +897,7 @@ def event_approval(sender, instance, **kwargs):
     except Event.DoesNotExist:
         return
 
+
 # Оповещение пользователей
 @receiver(signals.pre_save, sender=Issue)
 def issue_notifications(sender, instance, **kwargs):
@@ -872,22 +910,22 @@ def issue_notifications(sender, instance, **kwargs):
                 chat_id = User.objects.get(id=instance.user_id_id).id_telegram
                 if instance.type == 'Rejected_registration':
                     bot.send_message(chat_id,
-                                 f'Ваша заявка на регистрацию отменена по следующей причине: \n{instance.message_from_employee}')
+                                     f'Ваша заявка на регистрацию отменена по следующей причине: \n{instance.message_from_employee}')
                 elif instance.type == 'Delete_profile':
                     bot.send_message(chat_id,
-                                 f'Ваш аккаунт удален по следующей причине: \n{instance.message_from_employee}')
+                                     f'Ваш аккаунт удален по следующей причине: \n{instance.message_from_employee}')
                 elif instance.type == 'Rejected_booking':
                     event_canceled = event_status.get(id=instance.connection.event_id)
                     bot.send_message(chat_id,
-                                 f'Ваша заявка на бронирование отклонена. По следующей причине: \n{instance.message_from_employee}' +
-                                 registration_event['canceled'].format(
-                                     event_canceled.name_event,
-                                     room.get(id=event_canceled.room_id_id).name_room,
-                                     event_canceled.quantity_people,
-                                     datetime.strptime(str(event_canceled.date), '%Y-%m-%d').date().strftime(
-                                         '%d.%m.%Y'),
-                                     event_canceled.start_time,
-                                     event_canceled.finish_time))
+                                     f'Ваша заявка на бронирование отклонена. По следующей причине: \n{instance.message_from_employee}' +
+                                     registration_event['canceled'].format(
+                                         event_canceled.name_event,
+                                         room.get(id=event_canceled.room_id_id).name_room,
+                                         event_canceled.quantity_people,
+                                         datetime.strptime(str(event_canceled.date), '%Y-%m-%d').date().strftime(
+                                             '%d.%m.%Y'),
+                                         event_canceled.start_time,
+                                         event_canceled.finish_time))
             elif instance.type == 'Other' and instance.message_id is not None:
                 if instance.message_id is not None:
                     bot.send_message(instance.message_id,
@@ -921,7 +959,6 @@ if event_status.filter(status_event='approval') or event_status.filter(status_ev
             elif element.finish_time <= datetime.now().time() and element.status_event == 'active':
                 element.status_event = 'completed'
                 element.save()
-
 
 # web_hook_info = bot.get_webhook_info()
 # logger.info('WebHookInfo: %s', web_hook_info)

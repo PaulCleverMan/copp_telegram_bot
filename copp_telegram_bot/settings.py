@@ -135,31 +135,31 @@ TOKEN = '1759517237:AAG66CoScQeZzYmg_UdoFmz4KI9tRCT4Bzg'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# LOGGING = {
-#     'version': 1,
-#     'disable_existing_loggers': False,
-#     'formatters': {
-#         'verbose': {
-#             'format': 'TYPE: {levelname}, LOCALIZATION: {module} \nMESSAGE: {message} \n{asctime}\n',
-#             'datefmt': 'DATE: %d/%m/%Y TIME: %I:%M:%S %p',
-#             'style': '{',
-#         },
-#     },
-#     'handlers': {
-#         'File': {
-#             'level': 'INFO',
-#             'class': 'logging.FileHandler',
-#             'formatter': 'verbose',
-#             'filename': 'home/p/pashok13ru/telegram_bot/public_html/logs/logs.log',
-#         },
-#     },
-#     'loggers': {
-#         '': {
-#             'handlers': ['File'],
-#             'level': 'INFO',
-#             'propagate': True,
-#         },
-#     },
-# }
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': 'TYPE: {levelname}, LOCALIZATION: {module} \nMESSAGE: {message} \n{asctime}\n',
+            'datefmt': 'DATE: %d/%m/%Y TIME: %I:%M:%S %p',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'File': {
+            'level': 'WARNING',
+            'class': 'logging.FileHandler',
+            'formatter': 'verbose',
+            'filename': 'home/p/pashok13ru/telegram_bot/public_html/logs/logs.log',
+        },
+    },
+    'loggers': {
+        '': {
+            'handlers': ['File'],
+            'level': 'WARNING',
+            'propagate': True,
+        },
+    },
+}
 
 

@@ -120,6 +120,8 @@ class Coworking_Slot(models.Model):
     start_time = models.TimeField('Время начала')
     finish_time = models.TimeField('Время окончания')
     status_slot = models.CharField('Статус', max_length=20, choices=VERIFICATION_SLOT, default=VERIFICATION_SLOT[0])
+    registration_date = models.DateField('Дата бронирования')
+    registration_time = models.TimeField('Время броирования')
 
     def __str__(self):
         return f'{self.number_slot}'

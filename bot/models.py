@@ -92,7 +92,7 @@ class Event(models.Model):
     date = models.DateField('Дата')
     start_time = models.TimeField('Время начала')
     finish_time = models.TimeField('Время окончания')
-    status_event = models.CharField('Статус', max_length=40, choices=VERIFICATION_EVENT, default=VERIFICATION_EVENT[0])
+    status = models.CharField('Статус', max_length=40, choices=VERIFICATION_EVENT, default=VERIFICATION_EVENT[0])
     registration_date = models.DateField('Дата бронирования')
     registration_time = models.TimeField('Время броирования')
 
@@ -119,7 +119,7 @@ class Coworking_Slot(models.Model):
     date = models.DateField('Дата')
     start_time = models.TimeField('Время начала')
     finish_time = models.TimeField('Время окончания')
-    status_slot = models.CharField('Статус', max_length=20, choices=VERIFICATION_SLOT, default=VERIFICATION_SLOT[0])
+    status = models.CharField('Статус', max_length=20, choices=VERIFICATION_SLOT, default=VERIFICATION_SLOT[0])
     registration_date = models.DateField('Дата бронирования')
     registration_time = models.TimeField('Время броирования')
 

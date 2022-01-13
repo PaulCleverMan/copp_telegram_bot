@@ -61,9 +61,9 @@ class Count_itemViews(VersionAdmin):
 
 @admin.register(Event)
 class EventViews(VersionAdmin):
-    list_display = ('name_event', 'user_id', 'organization', 'quantity_people', 'date', 'start_time', 'finish_time', 'status_event', )
-    list_editable = ('quantity_people', 'status_event')
-    list_filter = ('status_event', ('date', DateRangeFilter))
+    list_display = ('name_event', 'user_id', 'organization', 'quantity_people', 'date', 'start_time', 'finish_time', 'status', )
+    list_editable = ('quantity_people', 'status')
+    list_filter = ('status', ('date', DateRangeFilter))
     search_fields = ('name_event',)
     actions = [duplicate_event]
 
@@ -76,10 +76,10 @@ class Coworking_PeopleInstanceInline(admin.TabularInline):
 
 @admin.register(Coworking_Slot)
 class Coworking_SlotViews(VersionAdmin):
-    list_display = ('number_slot', 'user_id_created', 'quantity_people', 'room_id', 'date', 'start_time', 'finish_time', 'status_slot')
+    list_display = ('number_slot', 'user_id_created', 'quantity_people', 'room_id', 'date', 'start_time', 'finish_time', 'status')
     inlines = [Coworking_PeopleInstanceInline]
-    list_editable = ('status_slot',)
-    list_filter = ('room_id','status_slot')
+    list_editable = ('status',)
+    list_filter = ('room_id','status')
     search_fields = ('number_slot',)
 
 

@@ -32,16 +32,14 @@ bot = telebot.TeleBot(settings.TOKEN, threaded=False, parse_mode='HTML')
 # Рендер страницы и отправка запросов боту
 @csrf_exempt
 def index(request):
+    if request.method != 'POST':
+        return render(request, 'main/index.html')
+    if request.META.get('CONTENT_TYPE') != 'application/json':
+        return render(request, 'main/index.html')
     json_string = request.body.decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
-    logger.info('Update: %s', update)
     bot.process_new_updates([update])
     return HttpResponse(status=200)
-
-@csrf_exempt
-def rendering (request):
-    index(request)
-    return render(request, 'main/index.html')
 
 # Словарь, в который записываются введенные данные от пользователя во время пошагового обработчика
 user_dict = {}
@@ -238,6 +236,8 @@ def echo_all(message):
 def call_handler(call):
     markup = types.InlineKeyboardMarkup()
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup='')
+
+    logger.warning('data: %s', call.data)
 
     if call.data == 'private_person' or call.data == 'company':
         chat_id = call.message.chat.id

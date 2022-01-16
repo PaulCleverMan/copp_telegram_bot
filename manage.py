@@ -1,10 +1,10 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.8
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
 
-
 def main():
+
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'copp_telegram_bot.settings')
     try:

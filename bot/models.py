@@ -112,7 +112,6 @@ class Coworking_Slot(models.Model):
         ('canceled', 'Отменен'),
     )
 
-    number_slot = models.BigIntegerField('Номер слота')
     user_id_created = models.ForeignKey('User', on_delete=models.CASCADE, verbose_name='Создал')
     quantity_people = models.IntegerField('Количество участников')
     room_id = models.ForeignKey('Room', on_delete=models.CASCADE, verbose_name='Помещение')
@@ -124,7 +123,7 @@ class Coworking_Slot(models.Model):
     registration_time = models.TimeField('Время броирования')
 
     def __str__(self):
-        return f'{self.number_slot}'
+        return f'{self.user_id_created}'
 
 
     class Meta:

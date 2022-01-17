@@ -151,20 +151,14 @@ LOGGING = {
             'class': 'logging.FileHandler',
             'formatter': 'verbose',
             'filename': '/home/p/pashok13ru/telegram_bot/public_html/logs/logs.log',
-            # 'filename': 'logs/logs.log',
         },
     },
     'loggers': {
-        'django': {
+        '': {
             'handlers': ['File'],
             'level': 'WARNING',
             'propagate': True,
-        },
-        'bot': {
-            'handlers': ['File'],
-            'level': 'WARNING',
-            'propagate': True,
-        },
+        }
     },
 }
 

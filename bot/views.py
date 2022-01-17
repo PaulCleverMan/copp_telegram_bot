@@ -4,6 +4,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 from datetime import *
 import datetime as dt
+import calendar
 from dateutil.relativedelta import relativedelta
 import requests
 import time
@@ -60,6 +61,7 @@ connection = Connection()
 connection_search = Connection.objects
 
 # Время работы организации (для юр. лиц)
+calendar.setfirstweekday(calendar.MONDAY)
 start_hour_org = datetime.strptime('06:00:00', '%H:%M:%S').time()
 finish_hour_org = datetime.strptime('23:30:00', '%H:%M:%S').time()
 max_day_for_booking = 30
@@ -67,6 +69,9 @@ start_hour_private = datetime.strptime('09:00:00', '%H:%M:%S').time()
 finish_hour_private = datetime.strptime('18:00:00', '%H:%M:%S').time()
 
 year = datetime.now().year
+
+# id чата группы, которой предоставлен доступ.
+group_chats_access = [-784439140, -722395699]
 
 # Текста шаблона сообщения от бота
 text_messages = {
@@ -140,31 +145,66 @@ btn_room_event = types.InlineKeyboardButton(text='Бронирование по�
 btn_start_back = types.InlineKeyboardButton(text='Главное меню', callback_data='start_back')
 btn_reg_slot = types.InlineKeyboardButton(text='Бронирование коворгинг', callback_data='reg_slot')
 btn_slot_record = types.InlineKeyboardButton(text='Запись в коворгинг', callback_data='slot_record')
+btn_slot_record_me = types.InlineKeyboardButton(text='Записаться', callback_data='slot_record_me')
+btn_slot_record_other = types.InlineKeyboardButton(text='Записать другого участника', callback_data='slot_record_other')
+
+def chat_group_or_private(chat_id):
+    chat_id = chat_id.isdigit()
+    return chat_id
+
+def group_command_access(chat_id):
+    id = chat_id
+    for number in range(len(group_chats_access)):
+        if group_chats_access[number] == id:
+            return True
+    return False
+
+def send_event(chat_id):
+    events = event_status.filter(date=datetime.now().date() + timedelta(1), status='approval')
+    text_events = ''
+    date_text = datetime.strptime(str(datetime.now().date() + timedelta(1)), '%Y-%m-%d').date().strftime('%d.%m.%Y')
+    if events.exists() is True:
+        for event in range(len(events)):
+            text_events += 'Наименование: <b>{}</b>\nПомещение: <b>{}</b>\nВремя: <b>{}</b>\n\n'.format(
+                events[event].name_event,
+                room.get(id=events[event].room_id_id).name_room,
+                f'{events[event].start_time} - {events[event].finish_time}',
+            )
+        bot.send_message(chat_id, f'Выгрузка <b>{date_text}</b>\n\n' + text_events)
+    elif events.exists() is False:
+        bot.send_message(chat_id, f'Выгрузка <b>{date_text}</b>\n\nМероприятия не забронированны!')
+
 
 
 # Обработка команды (старт) от пользователя работает в зависимости от того, зарегистрирован или нет
 @bot.message_handler(commands=['start'])
 def start(message):
-    user = User.objects.filter(id_telegram=message.chat.id)
-    markup = types.InlineKeyboardMarkup()
-    if user:
-        if user.filter(type='private_person') and user.filter(status='approval'):
-            markup.add(btn_reg_slot)
-            markup.add(btn_slot_record)
-            bot.send_message(message.chat.id, text_messages['private_person_approval'], reply_markup=markup)
-        elif user.filter(type='company') and user.filter(status='approval'):
-            markup.add(btn_room_event)
-            bot.send_message(message.chat.id, text_messages['company_approval'], reply_markup=markup)
-        elif user.filter(status='not_approved'):
-            bot.send_message(message.chat.id, registration_messages['account_not_approved'])
-        elif user.filter(status='deleted'):
+    chat_id = chat_group_or_private(str(message.chat.id))
+
+    if chat_id:
+        user = User.objects.filter(id_telegram=message.chat.id)
+        markup = types.InlineKeyboardMarkup()
+        if user:
+            if user.filter(type='private_person') and user.filter(status='approval'):
+                markup.add(btn_reg_slot)
+                markup.add(btn_slot_record)
+                bot.send_message(message.chat.id, text_messages['private_person_approval'], reply_markup=markup)
+            elif user.filter(type='company') and user.filter(status='approval'):
+                markup.add(btn_room_event)
+                bot.send_message(message.chat.id, text_messages['company_approval'], reply_markup=markup)
+            elif user.filter(status='not_approved'):
+                bot.send_message(message.chat.id, registration_messages['account_not_approved'])
+            elif user.filter(status='deleted'):
+                markup.add(btn_private_person, btn_company)
+                bot.send_message(message.chat.id, text_messages['welcome'], reply_markup=markup)
+            else:
+                bot.send_message(message.chat.id, 'Ваш профиль не подтвержден. Пожалуйста, ожидайте.')
+        elif not user:
             markup.add(btn_private_person, btn_company)
             bot.send_message(message.chat.id, text_messages['welcome'], reply_markup=markup)
-        else:
-            bot.send_message(message.chat.id, 'Ваш профиль не подтвержден. Пожалуйста, ожидайте.')
-    elif not user:
-        markup.add(btn_private_person, btn_company)
-        bot.send_message(message.chat.id, text_messages['welcome'], reply_markup=markup)
+    elif not chat_id:
+            bot.send_message(message.chat.id, f'{message.chat.id}')
+
 
 
 # Обработка команды (помощь) от пользователя (регистрация не требуется)
@@ -172,17 +212,30 @@ def start(message):
 def help(message):
     bot.send_message(message.chat.id, text_messages['help'])
 
+# Обработчик комманды на выполнение отправки забронированных помещений.
+@bot.message_handler(commands=['list'])
+def list(message):
+    chat_id = chat_group_or_private(str(message.chat.id))
+    if not chat_id:
+        access_group = group_command_access(message.chat.id)
+        if access_group:
+            send_event(message.chat.id)
+        elif not access_group:
+            bot.send_message(message.chat.id, 'У вас нет доступа к данной комманде!')
+
 
 # Обработка команды (вопрос) от пользователя (регистрация не требуется)
 @bot.message_handler(commands=['question'])
 def question(message):
-    chat_id = message.chat.id
-    question_dict[chat_id] = new_issue
-    new_issue.type = 'Other'
-    new_issue.message_id = chat_id
+    chat_id = chat_group_or_private(str(message.chat.id))
+    if chat_id:
+        chat_id = message.chat.id
+        question_dict[chat_id] = new_issue
+        new_issue.type = 'Other'
+        new_issue.message_id = chat_id
 
-    bot.send_message(message.chat.id, text_messages['question'])
-    bot.register_next_step_handler(message, first_step_question, question_dict)
+        bot.send_message(message.chat.id, text_messages['question'])
+        bot.register_next_step_handler(message, first_step_question, question_dict)
 
 
 def first_step_question(message, question_dict):
@@ -237,8 +290,6 @@ def call_handler(call):
     markup = types.InlineKeyboardMarkup()
     bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup='')
 
-    logger.warning('data: %s', call.data)
-
     if call.data == 'private_person' or call.data == 'company':
         chat_id = call.message.chat.id
         user = User()
@@ -285,6 +336,8 @@ def call_handler(call):
         main_room = room.get(is_coworking=True).id
         registration_slot(call, chat_id, main_room)
     elif call.data == 'slot_record':
+        registration_in_slot_select(call)
+    elif call.data == 'slot_record_me' or call.data == 'slot_record_other':
         registration_in_slot(call)
 
     i = 0
@@ -595,7 +648,16 @@ def formatter_date(message):
     date = datetime.strptime(str(date), '%Y-%m-%d').date()
     return date
 
-# Бронирование помещения (мероприятие)
+def days_off(date, dict):
+    if room.get(id=dict.room_id_id).is_coworking:
+        if date.weekday() == 5 or date.weekday() == 6:
+            return False
+        else:
+            return True
+    else:
+        return True
+
+# Бронирование помещения
 def first_step_booking(message, dict, status_booking):
     try:
         chat_id = message.chat.id
@@ -616,7 +678,11 @@ def first_step_booking(message, dict, status_booking):
         elif control_year:
             if date < datetime.today().date():
                 date += relativedelta(years=+1)
-            if status_booking.filter(date=date, room_id_id=event.room_id_id).exists() is True:
+            control_day = days_off(date, event)
+            if not control_day:
+                bot.send_message(message.chat.id, 'Помещение доступно для бронирование только в буднии дни! Повторите попытку...')
+                bot.register_next_step_handler(message, first_step_booking, dict, status_booking)
+            elif status_booking.filter(date=date, room_id_id=event.room_id_id).exists() is True:
 
                 if event_interval_fee != '':
                     event.date = date
@@ -832,14 +898,18 @@ def registration_slot(call, chat_id, main_room):
     slot = Coworking_Slot()
     slot_dict[chat_id] = slot
     slot.room_id_id = main_room
-    slot.number_slot = 999999
 
     slot.user_id_created_id = User.objects.get(id_telegram=call.message.chat.id).id
     bot.send_message(call.message.chat.id, booking['date'])
     bot.register_next_step_handler(call.message, first_step_booking, slot_dict, slot_status)
 
+def registration_in_slot_select(call):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(btn_slot_record_me, btn_slot_record_other)
+    bot.send_message(call.message.chat.id, 'Вы можете записаться на участие в коворкинг самостоятельно или добавить другого участника. Выберите способ записи.', reply_markup = markup)
+
 def registration_in_slot(call):
-    bot.send_message(call.message.chat.id, 'Функционал не реализован.')
+    bot.send_message(call.message.chat.id, 'Функционал не реализован')
 
 
 bot.enable_save_next_step_handlers(delay=0,

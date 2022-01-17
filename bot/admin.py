@@ -76,11 +76,10 @@ class Coworking_PeopleInstanceInline(admin.TabularInline):
 
 @admin.register(Coworking_Slot)
 class Coworking_SlotViews(VersionAdmin):
-    list_display = ('number_slot', 'user_id_created', 'quantity_people', 'room_id', 'date', 'start_time', 'finish_time', 'status')
+    list_display = ('user_id_created', 'quantity_people', 'room_id', 'date', 'start_time', 'finish_time', 'status')
     inlines = [Coworking_PeopleInstanceInline]
     list_editable = ('status',)
     list_filter = ('room_id','status')
-    search_fields = ('number_slot',)
 
 
 @admin.register(Coworking_People)

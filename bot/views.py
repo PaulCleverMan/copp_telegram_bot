@@ -573,18 +573,21 @@ def registration_confirm(message, user_dict):
         bot.send_message(message, f'Что-то пошло не так!')
 
 
-def rabbit_intervals(date, event, intervals, status_booking):
+def rabbit_intervals(date, event, intervals, status_booking, start_work, end_work):
     event_date = status_booking.filter(date=date, room_id_id=event.room_id_id).order_by('start_time')
     event_length = len(status_booking.filter(date=date, room_id_id=event.room_id_id))
+
+    if status_booking.filter(date=date, room_id_id=event.room_id_id).exists() is False:
+        intervals = create_table_interval(start_work, end_work, intervals)
 
     i = 0
     while i < event_length:
 
         # От начала работы заведения до первого интервала
-        if i == 0 and start_hour_org != event_date[0].start_time:
+        if i == 0 and start_work != event_date[0].start_time:
             finish_interval = timedelta(hours=event_date[i].start_time.hour,
                                         minutes=event_date[i].start_time.minute) - timedelta(minutes=30)
-            start_interval = start_hour_org
+            start_interval = start_work
             finish_interval = datetime.strptime(str(finish_interval), '%H:%M:%S').time()
             if finish_interval > start_interval < event_date[i].start_time:
                 intervals = create_table_interval(start_interval, finish_interval, intervals)
@@ -599,8 +602,8 @@ def rabbit_intervals(date, event, intervals, status_booking):
             if event_date[i].finish_time < start_interval < finish_interval < event_date[i + 1].start_time:
                 intervals = create_table_interval(start_interval, finish_interval, intervals)
         # От последнего и до окончания работы заведения
-        if i + 1 == event_length and finish_hour_org != event_date.reverse()[0].finish_time:
-            finish_interval = finish_hour_org
+        if i + 1 == event_length and end_work != event_date.reverse()[0].finish_time:
+            finish_interval = end_work
             start_interval = timedelta(hours=event_date[i].finish_time.hour,
                                        minutes=event_date[i].finish_time.minute) + timedelta(minutes=30)
             start_interval = datetime.strptime(str(start_interval), '%H:%M:%S').time()
@@ -669,7 +672,11 @@ def first_step_booking(message, dict, status_booking):
         intervals = []
         event_interval_fee = ''
 
-        intervals = rabbit_intervals(date, event, intervals, status_booking)
+        if room.get(id=event.room_id_id).is_coworking:
+            intervals = rabbit_intervals(date, event, intervals, status_booking, start_hour_private, finish_hour_private)
+        elif not room.get(id=event.room_id_id).is_coworking:
+            intervals = rabbit_intervals(date, event, intervals, status_booking, start_hour_org, finish_hour_org)
+
         event_interval_fee = string_interval(intervals, event_interval_fee)
 
         if not control_year:
@@ -694,7 +701,7 @@ def first_step_booking(message, dict, status_booking):
 
             elif status_booking.filter(date=date, room_id_id=event.room_id_id).exists() is False:
                 event.date = date
-                bot.send_message(message.chat.id, booking['start_time'])
+                bot.send_message(message.chat.id, f"Доступные интервалы для бронирования:\n{event_interval_fee}\nВведите время начала мероприятия. \n\nФормат: <i>часы:минуты</i> \nПример: <i>10:00 или 10:30</i>")
                 bot.register_next_step_handler(message, second_step_booking, dict, intervals, status_booking)
 
     except ValueError:
@@ -726,6 +733,12 @@ def validation_interval(time, interval, step_time, start_time=None):
         j += 1
     return False
 
+def opening_hours(time, start_work, end_work):
+    if time < start_work or time > end_work:
+        return False
+    else:
+        return True
+
 
 def second_step_booking(message, dict, intervals, status_booking):
     try:
@@ -740,7 +753,12 @@ def second_step_booking(message, dict, intervals, status_booking):
             step_time = 'start_time'
             check_start_time = validation_interval(start_time, intervals, step_time)
 
-        if start_time < start_hour_org or start_time > finish_hour_org:
+        if room.get(id=event.room_id_id).is_coworking:
+            opening_hours_bol = opening_hours(start_time, start_hour_private, finish_hour_private)
+        else:
+            opening_hours_bol = opening_hours(start_time, start_hour_org, finish_hour_org)
+
+        if not opening_hours_bol:
             bot.send_message(message.chat.id,
                              'Время мероприятия превышает время работы заведения, повторите попытку...')
             bot.register_next_step_handler(message, second_step_booking, dict, intervals, status_booking)
@@ -774,36 +792,42 @@ def third_step_booking(message, dict, intervals, status_booking):
         finish_time = message.text + ':00'
         finish_time = convert_time(finish_time)
 
-        check_finish_time = True
-
-        if intervals:
-            step_time = 'finish_time'
-            check_finish_time = validation_interval(finish_time, intervals, step_time, event.start_time)
-
-        if finish_time < start_hour_org or finish_time > finish_hour_org:
-            msg = bot.send_message(message.chat.id,
-                                   'Время мероприятия превышает время работы заведения, повторите попытку...')
-            bot.register_next_step_handler(msg, third_step_booking, dict, intervals, status_booking)
-        elif finish_time.minute is not 0 and finish_time.minute is not 30:
-            bot.send_message(message.chat.id, 'Интервал времени должен быть равен 30 минут, повторите попытку...')
+        if finish_time <= event.start_time:
+            bot.send_message(message.chat.id, 'Время меньше либо равно началу мероприятия, повторите попытку...')
             bot.register_next_step_handler(message, third_step_booking, dict, intervals, status_booking)
-        elif check_finish_time is True:
-            event.finish_time = finish_time
+        else:
+            check_finish_time = True
+
+            if intervals:
+                step_time = 'finish_time'
+                check_finish_time = validation_interval(finish_time, intervals, step_time, event.start_time)
 
             if room.get(id=event.room_id_id).is_coworking:
-                bot.send_message(message.chat.id, booking['quantity_people'])
-                bot.register_next_step_handler(message, sixth_step_booking, dict, status_booking)
+                opening_hours_bol = opening_hours(finish_time, start_hour_private, finish_hour_private)
             else:
-                bot.send_message(message.chat.id, booking['name_event'])
-                bot.register_next_step_handler(message, fourth_step_booking, dict, status_booking)
-        elif check_finish_time is False:
-            if finish_time <= event.start_time:
-                bot.send_message(message.chat.id, 'Время меньше либо равно началу мероприятия, повторите попытку...')
+                opening_hours_bol = opening_hours(finish_time, start_hour_org, finish_hour_org)
+
+            if not opening_hours_bol:
+                bot.send_message(message.chat.id,
+                                 'Время мероприятия превышает время работы заведения, повторите попытку...')
                 bot.register_next_step_handler(message, third_step_booking, dict, intervals, status_booking)
-            else:
+            elif finish_time.minute is not 0 and finish_time.minute is not 30:
+                bot.send_message(message.chat.id, 'Интервал времени должен быть равен 30 минут, повторите попытку...')
+                bot.register_next_step_handler(message, third_step_booking, dict, intervals, status_booking)
+            elif check_finish_time is True:
+                event.finish_time = finish_time
+
+                if room.get(id=event.room_id_id).is_coworking:
+                    bot.send_message(message.chat.id, booking['quantity_people'])
+                    bot.register_next_step_handler(message, sixth_step_booking, dict, status_booking)
+                else:
+                    bot.send_message(message.chat.id, booking['name_event'])
+                    bot.register_next_step_handler(message, fourth_step_booking, dict, status_booking)
+            elif check_finish_time is False:
                 bot.send_message(message.chat.id,
                                  '❗️Конечное время превышает допустимый интервал, повторите попытку...❗️')
                 bot.register_next_step_handler(message, third_step_booking, dict, intervals, status_booking)
+
 
     except ValueError:
         bot.send_message(message.chat.id, 'Некорректный формат или значение,  повторите попытку...')
@@ -1033,6 +1057,23 @@ def issue_notifications(sender, instance, **kwargs):
                     bot.send_message(chat_id, f'{instance.message_from_employee}')
     except Issue.DoesNotExist:
         return
+
+@receiver(signals.post_save, sender=Coworking_Slot)
+def auto_registration_slot(sender, instance, **kwargs):
+    if Coworking_People.objects.filter(slot_id_id=instance.pk).exists() is False:
+        user = User.objects.get(pk=instance.user_id_created_id)
+        coworking_people = Coworking_People()
+        coworking_people.slot_id_id = instance.pk
+        coworking_people.full_name = f'{user.last_name} {user.first_name}'
+        coworking_people.email = user.email
+        coworking_people.phone = user.phone
+        coworking_people.user_id_add_id = instance.user_id_created_id
+        coworking_people.status_people = 'approval'
+        coworking_people.visited = False
+        coworking_people.save()
+    else:
+        return
+
 
 
 # Изменение статуса мероприятия

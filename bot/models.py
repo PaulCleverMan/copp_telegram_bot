@@ -140,7 +140,7 @@ class Coworking_People(models.Model):
     slot_id = models.ForeignKey('Coworking_Slot', on_delete=models.CASCADE, verbose_name='Слот')
     full_name = models.CharField('Ф.И.О', max_length=255)
     email = models.EmailField('Почта')
-    phone = models.CharField('Телефон', max_length=11)
+    phone = models.CharField('Телефон', max_length=32)
     user_id_add = models.ForeignKey('User', on_delete=models.CASCADE, verbose_name='Добавил')
     status_people = models.CharField('Статус', max_length=20, choices=VERIFICATION_PEOPLE, default=VERIFICATION_PEOPLE[0])
     visited = models.BooleanField(default=False, verbose_name='Присутствовал')

@@ -932,8 +932,25 @@ def registration_in_slot_select(call):
     markup.add(btn_slot_record_me, btn_slot_record_other)
     bot.send_message(call.message.chat.id, 'Вы можете записаться на участие в коворкинг самостоятельно или добавить другого участника. Выберите способ записи.', reply_markup = markup)
 
+count_btn = 3
+
 def registration_in_slot(call):
-    bot.send_message(call.message.chat.id, 'Функционал не реализован')
+    markup = types.InlineKeyboardMarkup()
+    btn_date = []
+    date_slot = Coworking_Slot.objects.filter(date__range=[datetime.now().date(), datetime.now().date() + timedelta(max_day_for_booking)]).order_by('date')
+    for date in range(0, len(date_slot), count_btn):
+        if (date + count_btn) >= len(date_slot):
+            for step_date in range(len(date_slot) - date):
+                btn_date.append(types.InlineKeyboardButton(text=f'{date_slot[date + step_date].date}', callback_data=f'{date_slot[date + step_date].date}'))
+        else:
+            for step_date in range(count_btn):
+                btn_date.append(types.InlineKeyboardButton(text=f'{date_slot[date + step_date].date}', callback_data=f'{date_slot[date + step_date].date}'))
+
+    markup.row_width = count_btn
+    markup.add(*btn_date)
+
+    bot.send_message(call.message.chat.id, 'Выберите  дату:', reply_markup = markup)
+    bot.send_message(call.message.chat.id, 'Далее программа не будет работать. Функционал не реализован!')
 
 
 bot.enable_save_next_step_handlers(delay=0,
